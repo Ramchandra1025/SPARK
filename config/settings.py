@@ -2,16 +2,52 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+from django.core.management.utils import get_random_secret_key
+
+
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get("SPARK_SECRET_KEY", "django-insecure-change-this-for-deployment")
-DEBUG = os.environ.get("SPARK_DEBUG", "true").lower() in {"1", "true", "yes"}
+DEBUG = env_bool("SPARK_DEBUG", False)
+SECRET_KEY = os.environ.get("SPARK_SECRET_KEY")
+if not SECRET_KEY:
+    if DEBUG:
+        # An ephemeral key keeps local development usable without shipping a
+        # known signing key into production.
+        SECRET_KEY = get_random_secret_key()
+    else:
+        raise ImproperlyConfigured("Set SPARK_SECRET_KEY before starting outside debug mode.")
+
+if not DEBUG and not os.environ.get("SPARK_ALLOWED_HOSTS", "").strip():
+    raise ImproperlyConfigured("Set SPARK_ALLOWED_HOSTS to the deployed host names outside debug mode.")
+
 ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get("SPARK_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
     if host.strip()
 ]
+
+# Production defaults assume TLS terminates at Django or a correctly
+# configured reverse proxy. HSTS is enabled for one year in production.
+SECURE_SSL_REDIRECT = env_bool("SPARK_SSL_REDIRECT", not DEBUG)
+SECURE_HSTS_SECONDS = int(os.environ.get("SPARK_HSTS_SECONDS", "0" if DEBUG else "31536000"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("SPARK_HSTS_INCLUDE_SUBDOMAINS", False)
+SECURE_HSTS_PRELOAD = env_bool("SPARK_HSTS_PRELOAD", False)
+SESSION_COOKIE_SECURE = env_bool("SPARK_SESSION_COOKIE_SECURE", not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("SPARK_CSRF_COOKIE_SECURE", not DEBUG)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
+if env_bool("SPARK_TRUST_X_FORWARDED_PROTO", False):
+    # Enable only when the trusted proxy removes any client supplied value.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 INSTALLED_APPS = [
     "django.contrib.admin",

@@ -2,7 +2,8 @@ from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.contrib import admin
-from django.test import TestCase, override_settings
+from django.contrib.staticfiles import finders
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -135,6 +136,65 @@ class RankingSystemTests(TestCase):
         admin_request = self.request_factory().get(change_url)
         admin_request.user = self.actor
         self.assertFalse(admin.site._registry[ScoreEntry].has_delete_permission(admin_request, entry))
+
+    def test_admin_rejects_score_changes_even_if_readonly_fields_are_posted(self):
+        member = self.member()
+        entry = self.award(member, "skills", 12, reason="Original award")
+        self.client.force_login(self.actor)
+        response = self.client.post(
+            reverse("admin:leaderboard_scoreentry_change", args=(entry.pk,)),
+            {
+                "member": member.pk,
+                "category": self.categories["skills"].pk,
+                "points": "999999",
+                "reason": "Forged edit",
+                "date_awarded": timezone.localdate().isoformat(),
+                "_save": "Save",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        entry.refresh_from_db()
+        self.assertEqual(entry.points, 12)
+        self.assertEqual(entry.reason, "Original award")
+
+    def test_admin_score_creation_requires_csrf_token(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.actor)
+        add_url = reverse("admin:leaderboard_scoreentry_add")
+        self.assertEqual(client.get(add_url).status_code, 200)
+        response = client.post(add_url, {"reason": "CSRF check"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_public_and_admin_text_fields_are_escaped(self):
+        attack_name = "<script>alert(1)</script>"
+        attack_team = "<img src=x onerror=alert(1)>"
+        member = self.member(attack_name, "SPK099", team=attack_team)
+        self.award(member, "skills", 1, reason=attack_name)
+
+        public_response = self.client.get("/")
+        self.assertContains(public_response, "&lt;script&gt;alert(1)&lt;/script&gt;")
+        self.assertContains(public_response, "&lt;img src=x onerror=alert(1)&gt;")
+        self.assertNotContains(public_response, attack_name)
+
+        self.client.force_login(self.actor)
+        admin_response = self.client.get(reverse("admin:leaderboard_scoreentry_changelist"))
+        self.assertContains(admin_response, "&lt;script&gt;alert(1)&lt;/script&gt;")
+        self.assertNotContains(admin_response, attack_name)
+
+    def test_public_page_links_to_existing_frontend_assets(self):
+        response = self.client.get("/")
+        self.assertContains(response, "/static/css/style.css")
+        self.assertContains(response, "/static/js/script.js")
+        self.assertTrue(finders.find("css/style.css"))
+        self.assertTrue(finders.find("js/script.js"))
+
+    def test_unapproved_host_header_is_rejected(self):
+        client = Client(raise_request_exception=False)
+        response = client.get("/", HTTP_HOST="attacker.example")
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_routes_are_not_exposed(self):
+        self.assertEqual(self.client.get("/api/").status_code, 404)
 
     def test_admin_can_award_and_attribute_an_unlimited_score_transaction(self):
         member = self.member()
