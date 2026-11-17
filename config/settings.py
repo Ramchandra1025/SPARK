@@ -1,5 +1,6 @@
 """Settings for the SPARK ranking system."""
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -57,6 +58,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "leaderboard.apps.LeaderboardConfig",
+    "axes",
 ]
 
 MIDDLEWARE = [
@@ -67,7 +69,35 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
+
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# Track failed Admin logins by IP, with a rolling cooldown that avoids a
+# permanent account lockout after a small number of mistyped passwords.
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_USE_ATTEMPT_EXPIRATION = True
+AXES_LOCKOUT_PARAMETERS = ["ip_address"]
+AXES_ONLY_ADMIN_SITE = True
+AXES_RESET_ON_SUCCESS = True
+AXES_HTTP_RESPONSE_CODE = 429
+AXES_ENABLE_RETRY_AFTER_HEADER = True
+
+if env_bool("SPARK_AXES_TRUST_X_FORWARDED_FOR", False):
+    try:
+        AXES_IPWARE_PROXY_COUNT = int(os.environ["SPARK_AXES_PROXY_COUNT"])
+    except (KeyError, ValueError) as exc:
+        raise ImproperlyConfigured(
+            "Set SPARK_AXES_PROXY_COUNT to the trusted proxy count when trusting X-Forwarded-For."
+        ) from exc
+    if AXES_IPWARE_PROXY_COUNT < 1:
+        raise ImproperlyConfigured("SPARK_AXES_PROXY_COUNT must be at least 1.")
+    AXES_IPWARE_META_PRECEDENCE_ORDER = ("HTTP_X_FORWARDED_FOR", "REMOTE_ADDR")
 
 ROOT_URLCONF = "config.urls"
 

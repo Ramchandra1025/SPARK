@@ -6,6 +6,7 @@ A Django and SQLite application for managing SPARK members, recording category-w
 
 - Python 3.10 or newer
 - Django 5.2 or 6.x
+- django-axes (admin login throttling)
 - Pillow (for optional member profile image uploads)
 
 ## Run on Windows PowerShell
@@ -60,6 +61,6 @@ Set it to `false` (or remove it) to keep USNs private. With USNs hidden, the pub
 
 Outside debug mode, startup requires `SPARK_SECRET_KEY` and `SPARK_ALLOWED_HOSTS`; there is no built-in production fallback key. Set `SPARK_DEBUG=false`, configure the application and reverse proxy for HTTPS, and run `python manage.py check --deploy`. Production defaults redirect HTTP to HTTPS, mark session and CSRF cookies secure, and send a one-year HSTS policy. Set `SPARK_TRUST_X_FORWARDED_PROTO=true` only when a trusted proxy strips client-supplied `X-Forwarded-Proto` and sets that header itself. HSTS applies to the current host; Django's deploy check will still advise enabling subdomain-wide HSTS and preload. Those stay off until every affected host is confirmed HTTPS-only.
 
-Django Admin has no built-in multi-factor authentication or login throttling in this project. Before exposing it to the public internet, add MFA and rate limiting at a trusted proxy, or restrict `/admin/` to a VPN or approved IP ranges.
+Django Admin login is throttled after five failed attempts from one client IP in a rolling 15-minute window. Direct connections use the socket peer IP. If Django is behind a reverse proxy, set `SPARK_AXES_TRUST_X_FORWARDED_FOR=true` and `SPARK_AXES_PROXY_COUNT` only after the proxy strips client-supplied `X-Forwarded-For`, sets the header itself, and Django is reachable only through the configured number of trusted proxy hops. Multi-factor authentication is not configured; add MFA or restrict `/admin/` to a VPN or approved IP ranges before public exposure. Run `python manage.py migrate` after installing dependencies so the Axes tracking tables are created.
 
 Run `python manage.py collectstatic` and configure the production web server to serve static and uploaded media files. SQLite is suitable for a small club deployment; move to PostgreSQL through Django's database settings if the system grows. The project exposes a server-rendered leaderboard and Django Admin; it contains no API endpoints or API-key authentication layer.

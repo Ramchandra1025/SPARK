@@ -165,6 +165,29 @@ class RankingSystemTests(TestCase):
         response = client.post(add_url, {"reason": "CSRF check"})
         self.assertEqual(response.status_code, 403)
 
+    def test_admin_login_throttles_repeated_bad_passwords(self):
+        login_url = reverse("admin:login")
+        response = None
+        for _ in range(5):
+            response = self.client.post(
+                login_url,
+                {"username": "clubadmin", "password": "incorrect-password"},
+            )
+        self.assertEqual(response.status_code, 429)
+        locked_response = self.client.post(
+            login_url,
+            {"username": "clubadmin", "password": "test-password-123"},
+        )
+        self.assertEqual(locked_response.status_code, 429)
+
+    def test_admin_login_accepts_valid_credentials(self):
+        response = self.client.post(
+            reverse("admin:login"),
+            {"username": "clubadmin", "password": "test-password-123"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session.get("_auth_user_id"), str(self.actor.pk))
+
     def test_public_and_admin_text_fields_are_escaped(self):
         attack_name = "<script>alert(1)</script>"
         attack_team = "<img src=x onerror=alert(1)>"
